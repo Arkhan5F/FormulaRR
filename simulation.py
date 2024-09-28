@@ -50,6 +50,7 @@ def initialize_race(track, drivers):
     pit_crew_busy = {driver[1]: 0 for driver in drivers}
     race_length = track[3]
     no_pit_window = max(5, int(race_length * 0.1))
+    lap_completed = 0
 
     # Assign initial tires and display starting grid
     print(f"\nStarting Grid (Initial weather: {weather}):")
@@ -60,108 +61,14 @@ def initialize_race(track, drivers):
         driver.append([])  # List to store damage
         print(f"[START] {driver[8]} - {driver[0]} ({driver[-3]})")
 
-    return weather, pit_crew_busy, race_length, no_pit_window, drivers
+    return weather, pit_crew_busy, race_length, no_pit_window, drivers, lap_completed
 
 def check_weather_change(current_weather):
     if random.random() < 0.05:
         new_weather = random.choice(['Dry', 'Light Rain', 'Heavy Rain'])
         if new_weather != current_weather:
-            return new_weather, f"Weather change: {new_weather} conditions!"
-    return current_weather, None
-
-def check_dnf(driver, race_length, drivers):
-    if random.random() < driver[7] / (100 * race_length):
-        driver[3] = 99999
-        driver[4] = 9999
-        dnf_reason = random.choice(dnf_reasons)
-        if dnf_reason == "collision with {}":
-            other_drivers = [d for d in drivers if d != driver and d[3] != 99999]
-            if other_drivers:  # Check if there are any other drivers still in the race
-                other_driver = random.choice(other_drivers)
-                dnf_reason = dnf_reason.format(other_driver[0])
-            else:
-                dnf_reason = "collision with barrier"  # Fallback if no other drivers are available
-        return f"DNF: {driver[0]} - {dnf_reason}"
-    return None
-
-def check_tire_puncture(driver):
-    tire_age = driver[-1]
-    tire_lifespan = tire_compounds[driver[-2]]['lifespan']
-    puncture_chance = max(0, (tire_age - tire_lifespan) / 100)
-    if random.random() < puncture_chance:
-        driver[-1] = tire_lifespan  # Force a pit stop
-        return f"PUNCTURE: {driver[0]} - Forced to pit"
-    return None
-
-def handle_pit_stop(driver, weather, laps_completed, race_length, pit_crew_busy):
-    if pit_crew_busy[driver[1]] == 0:
-        pit_time = random.uniform(20, 25)
-        new_tire = choose_tire_compound(weather, laps_completed, race_length)
-        pit_crew_busy[driver[1]] = 2
-        driver[3] += pit_time
-        driver[-2] = new_tire
-        driver[-1] = 0
-        return f"PIT: {driver[0]} {driver[-2]} -> {new_tire}, Stop: {pit_time:.2f}s"
-
-def calculate_lap_time(driver, track, weather):
-    # Calculate lap time
-    base_lap_time = track[1] + (track[2] - track[1]) / 2
-    driver_adjust = (driver[5] + driver[6]) / 100
-    tire_speed = tire_compounds[driver[-3]]['speed'][weather]
-    tire_deg = tire_compounds[driver[-3]]['degradation'] * driver[-2]
-    old_tire_penalty = max(0, (driver[-2] - tire_compounds[driver[-3]]['lifespan']) * 0.01)
-
-    damage_penalty = 0
-    for damage in driver[-1]:
-        if damage.startswith('unfixable'):
-            damage_penalty += random.uniform(0.5,
-                                             1.5)  # 0.5 to 1.5 seconds penalty per lap for each unfixable damage
-        elif damage == 'front_wing':
-            front_wing_penalty = random.uniform(0.3,
-                                                0.7)  # 0.3 to 0.7 seconds penalty per lap for damaged front wing
-            damage_penalty += front_wing_penalty
-
-    lap_time = base_lap_time * (1 - driver_adjust) * tire_speed * (1 + tire_deg) * (
-                1 + old_tire_penalty) + damage_penalty
-    driver[3] += lap_time
-    driver[-2] += 1  # Increment laps on current tire
-
-
-def process_overtakes(drivers, previous_order):
-    overtakes = []
-    for new_pos, driver in enumerate(drivers):
-        if driver[3] == 99999:  # Skip DNF'd drivers
-            continue
-        old_pos = previous_order.index(driver)
-        if new_pos < old_pos:
-            for overtaken in previous_order[new_pos:old_pos]:
-                if overtaken[3] != 99999:  # Ensure overtaken driver hasn't DNF'd
-                    overtakes.append((driver, overtaken, new_pos + 1, old_pos + 1))
-    return overtakes
-
-def generate_overtake_messages(overtakes):
-    overtake_summary = {}
-    for overtaker, overtaken, new_pos, old_pos in overtakes:
-        if new_pos <= 10 or old_pos <= 10:  # Only consider overtakes involving top 10 positions
-            if overtaker[0] not in overtake_summary:
-                overtake_summary[overtaker[0]] = {'start': old_pos, 'end': new_pos, 'passed': []}
-            overtake_summary[overtaker[0]]['end'] = new_pos
-            overtake_summary[overtaker[0]]['passed'].append(overtaken[0])
-
-    messages = []
-    for driver, summary in overtake_summary.items():
-        if summary['start'] != summary['end']:
-            passed_drivers = ', '.join(summary['passed'])
-            if summary['end'] <= 3 or summary['start'] <= 3:
-                messages.append(f"MAJOR OVERTAKE: {driver} gained {summary['start'] - summary['end']} "
-                                f"positions (P{summary['start']} -> P{summary['end']}), "
-                                f"passing {passed_drivers}")
-            else:
-                messages.append(f"OVERTAKE: {driver} gained {summary['start'] - summary['end']} "
-                                f"positions (P{summary['start']} -> P{summary['end']}), "
-                                f"passing {passed_drivers}")
-    return messages
-
+            return new_weather, True
+    return current_weather, False
 
 def check_driver_error(driver, weather):
     error_chance = 0.01 * (1 + (0.5 if weather != 'Dry' else 0))  # Increased chance in wet conditions
@@ -211,9 +118,7 @@ def run_race(track, drivers):
     print(f'\n{"=" * 50}\nRace: {track[0]} - {track[3]} Laps\n{"=" * 50}')
 
     # Initialize race conditions
-    weather, pit_crew_busy, race_length, no_pit_window, drivers = initialize_race(track, drivers)
-    laps_completed = 0
-
+    weather, pit_crew_busy, race_length, no_pit_window, drivers, laps_completed = initialize_race(track, drivers)
 
     print(f'\n{"=" * 50}\nRace Start\n{"=" * 50}')
 
@@ -224,11 +129,9 @@ def run_race(track, drivers):
         lap_events = []
 
         # Weather change
-        if random.random() < 0.05:
-            new_weather = random.choice(['Dry', 'Light Rain', 'Heavy Rain'])
-            if new_weather != weather:
-                weather = new_weather
-                lap_events.append(f"Weather change: {weather} conditions!")
+        weather, changed = check_weather_change(weather)
+        if changed:
+            lap_events.append(f"Weather change: {weather} conditions!")
 
         for i, driver in enumerate(drivers):
             if driver[3] == 99999:  # Driver has already DNF'd
